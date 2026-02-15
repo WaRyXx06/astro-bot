@@ -54,7 +54,8 @@ const GUILD_COMMANDS = [
       name: 'channel_name',
       type: 3, // STRING
       description: 'Nom du salon à supprimer',
-      required: true
+      required: true,
+      autocomplete: true
     }]
   },
   {
@@ -131,7 +132,8 @@ const GUILD_COMMANDS = [
         name: 'channel_name',
         type: 3, // STRING
         description: 'Nom du salon (pour ajouter/supprimer)',
-        required: false
+        required: false,
+        autocomplete: true
       }
     ]
   },
@@ -267,7 +269,8 @@ const GUILD_COMMANDS = [
         name: 'channel_name',
         type: 3, // STRING
         description: 'Nom du salon (pour ajouter/supprimer)',
-        required: false
+        required: false,
+        autocomplete: true
       },
       {
         name: 'reason',
@@ -329,7 +332,8 @@ const GUILD_COMMANDS = [
         name: 'channel_name',
         type: 3, // STRING
         description: 'Nom du salon source à backfill',
-        required: true
+        required: true,
+        autocomplete: true
       },
       {
         name: 'count',

@@ -982,7 +982,7 @@ client.on('interactionCreate', async (interaction) => {
       case 'addroom':
         await handleAddRoom(interaction);
         break;
-      case 'delroom':
+      case 'delchannel':
         await handleDelRoom(interaction);
         break;
       case 'syncroles':
@@ -1149,6 +1149,49 @@ client.on('interactionCreate', async (interaction) => {
       } else {
         await interaction.reply({ content: errorMessage, ephemeral: true });
       }
+    }
+  }
+
+  // Gestionnaire d'autocomplete pour les options channel_name
+  else if (interaction.isAutocomplete()) {
+    try {
+      const focusedOption = interaction.options.getFocused(true);
+      if (focusedOption.name !== 'channel_name') {
+        await interaction.respond([]);
+        return;
+      }
+
+      const typed = focusedOption.value.replace(/^#/, '').toLowerCase();
+      const Channel = require('./models/Channel');
+
+      // Récupérer le sourceGuild (null-safe si bot pas encore démarré)
+      const sourceGuild = client.services?.userClient?.getSourceGuild(interaction.guild.id);
+      if (!sourceGuild) {
+        await interaction.respond([]);
+        return;
+      }
+
+      // Query DB avec filtre partiel sur le nom
+      const filter = {
+        serverId: sourceGuild.id,
+        manuallyDeleted: { $ne: true }
+      };
+
+      const channels = await Channel.find(filter)
+        .select('name')
+        .sort({ name: 1 })
+        .lean();
+
+      // Filtrer par saisie utilisateur + limiter à 25 (max Discord)
+      const filtered = channels
+        .filter(ch => ch.name && ch.name.toLowerCase().includes(typed))
+        .slice(0, 25)
+        .map(ch => ({ name: `#${ch.name}`, value: ch.name }));
+
+      await interaction.respond(filtered);
+    } catch (error) {
+      // Erreur silencieuse - Discord affichera juste "aucun résultat"
+      try { await interaction.respond([]); } catch (_) {}
     }
   }
 });
