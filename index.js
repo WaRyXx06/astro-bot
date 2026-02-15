@@ -2254,8 +2254,8 @@ client.on('messageCreate', async (message) => {
     const ServerConfig = require('./models/ServerConfig');
     const serverConfig = await ServerConfig.findOne({ guildId: message.guild.id });
 
-    if (serverConfig && serverConfig.autoRepairEnabled) {
-      await handleErrorAutoRepair(message);
+    if (serverConfig && serverConfig.autoRepairEnabled && serverConfig.sourceGuildId) {
+      await handleErrorAutoRepair(message, serverConfig.sourceGuildId);
     }
   }
 });
@@ -2265,7 +2265,7 @@ client.on('messageCreate', async (message) => {
 // 🔄 ==========================================
 
 // 🔧 SYSTÈME AUTO-REPAIR - Correction automatique des correspondances manquantes
-async function handleErrorAutoRepair(message) {
+async function handleErrorAutoRepair(message, sourceGuildId) {
   try {
 
     // Parser le message pour extraire les informations
@@ -2287,9 +2287,9 @@ async function handleErrorAutoRepair(message) {
       // Mettre à jour la correspondance dans la base de données
       const Channel = require('./models/Channel');
       await Channel.findOneAndUpdate(
-        { name: channelName, serverId: message.guild.id },
+        { sourceChannelId: sourceChannelId, serverId: sourceGuildId },
         {
-          sourceChannelId: sourceChannelId,
+          name: channelName,
           discordId: existingChannel.id,
           scraped: true,
           lastActivity: new Date()
@@ -2341,7 +2341,7 @@ async function handleErrorAutoRepair(message) {
     const Channel = require('./models/Channel');
     const deletedChannel = await Channel.findOne({
       name: channelName,
-      serverId: message.guild.id,
+      serverId: sourceGuildId,
       manuallyDeleted: true
     });
 
@@ -2379,13 +2379,11 @@ async function handleErrorAutoRepair(message) {
 
       // Sauvegarder la correspondance
       await Channel.findOneAndUpdate(
-        { name: channelName, serverId: message.guild.id },
+        { sourceChannelId: sourceChannelId, serverId: sourceGuildId },
         {
-          sourceChannelId: sourceChannelId,
+          name: channelName,
           discordId: newChannel.id,
-          categoryId: category?.id,
           scraped: true,
-          type: 0,
           lastActivity: new Date()
         },
         { upsert: true }
@@ -7974,11 +7972,35 @@ async function handleBackfill(interaction) {
     let targetChannel = null;
     for (const doc of channelDocs) {
       if (!doc.sourceChannelId) continue;
+      if (!doc.discordId || doc.discordId === 'pending') continue;
       const ch = interaction.guild.channels.cache.get(doc.discordId);
       if (ch) {
         channelDoc = doc;
         targetChannel = ch;
         break;
+      }
+    }
+
+    // Fallback : chercher le salon mirror par nom dans le guild cache
+    if (!channelDoc || !targetChannel) {
+      const mirrorByName = interaction.guild.channels.cache.find(
+        ch => ch.name === channelName && ch.type !== 4 // exclure catégories
+      );
+      if (mirrorByName) {
+        // Trouver un doc avec sourceChannelId pour le backfill
+        const docWithSource = channelDocs.find(d => d.sourceChannelId);
+        if (docWithSource) {
+          channelDoc = docWithSource;
+          targetChannel = mirrorByName;
+
+          // Réparer le mapping DB si discordId invalide
+          if (!docWithSource.discordId || docWithSource.discordId === 'pending' || docWithSource.discordId !== mirrorByName.id) {
+            await Channel.findOneAndUpdate(
+              { _id: docWithSource._id },
+              { $set: { discordId: mirrorByName.id } }
+            );
+          }
+        }
       }
     }
 

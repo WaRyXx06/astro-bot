@@ -1630,7 +1630,10 @@ class UserClientService {
       });
 
       if (existingChannel && existingChannel.discordId && existingChannel.discordId !== 'pending') {
-        return;
+        // Vérifier que le discordId pointe vers un vrai salon sur le mirror
+        const existsOnMirror = targetGuild.channels.cache.has(existingChannel.discordId);
+        if (existsOnMirror) return;
+        // sinon continuer pour recréer/réparer le mapping
       }
 
       // Trouver ou créer la catégorie correspondante
@@ -1694,9 +1697,10 @@ class UserClientService {
 
       // Créer le salon mirror
       try {
+        const numericType = this.convertChannelType(sourceChannel.type);
         const channelData = {
           name: sourceChannel.name,
-          type: this.convertChannelType(sourceChannel.type),
+          type: numericType,
           parent: categoryId,
           topic: sourceChannel.topic,
           nsfw: sourceChannel.nsfw,
@@ -1709,7 +1713,24 @@ class UserClientService {
           channelData.userLimit = sourceChannel.userLimit || 0;
         }
 
-        const mirrorChannel = await targetGuild.channels.create(channelData);
+        let mirrorChannel;
+
+        // Fallback news → text si le serveur mirror n'a pas Community
+        if (numericType === 5) {
+          try {
+            mirrorChannel = await targetGuild.channels.create(channelData);
+          } catch (newsError) {
+            if (newsError.code === 50035 || newsError.message?.includes('COMMUNITY')) {
+              channelData.type = 0;
+              channelData.topic = `📢 [Salon d'annonces] ${sourceChannel.topic || ''}`;
+              mirrorChannel = await targetGuild.channels.create(channelData);
+            } else {
+              throw newsError;
+            }
+          }
+        } else {
+          mirrorChannel = await targetGuild.channels.create(channelData);
+        }
 
         // Sauvegarder le mapping en base de données
         await Channel.findOneAndUpdate(
@@ -1825,14 +1846,13 @@ class UserClientService {
       } catch (createError) {
         console.error(`❌ Erreur création salon mirror: ${createError.message}`);
 
-        // Sauvegarder quand même le mapping en pending
+        // Sauvegarder le mapping avec sourceChannelId comme discordId temporaire
+        // (évite le problème unique constraint avec 'pending' constant)
         await Channel.findOneAndUpdate(
           { sourceChannelId: sourceChannel.id, serverId: sourceGuild.id },
           {
             name: sourceChannel.name,
-            discordId: 'pending',
-            type: sourceChannel.type,
-            categoryId,
+            discordId: sourceChannel.id,
             lastActivity: new Date(),
             isActive: true
           },

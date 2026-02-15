@@ -267,7 +267,9 @@ class ChannelSyncService {
     for (const [sourceChannelId, sourceChannel] of sourceChannels) {
       try {
         // Ignorer les catégories, canaux vocaux et stage channels
-        if (sourceChannel.type === 4 || sourceChannel.type === 2 || sourceChannel.type === 13) continue;
+        // Convertir le type selfbot (string) en numérique pour comparaison fiable
+        const srcType = this.convertChannelType(sourceChannel.type);
+        if (srcType === 4 || srcType === 2 || srcType === 13) continue;
 
         // Vérifier si le mapping existe
         const existingMapping = await Channel.findOne({
@@ -276,9 +278,9 @@ class ChannelSyncService {
         });
 
         if (!existingMapping) {
-          // Créer un nouveau mapping
+          // Créer un nouveau mapping (match par nom uniquement — le type peut différer après fallback news→text)
           const mirrorChannel = targetGuild.channels.cache.find(
-            ch => ch.name === sourceChannel.name && ch.type === sourceChannel.type
+            ch => ch.name === sourceChannel.name && ch.type !== 4 // exclure catégories
           );
 
           if (mirrorChannel) {
@@ -383,10 +385,10 @@ class ChannelSyncService {
               }
             }
           }
-        } else if (!existingMapping.discordId || existingMapping.discordId === 'pending') {
-          // Réparer un mapping cassé
+        } else if (!existingMapping.discordId || existingMapping.discordId === 'pending' || !targetGuild.channels.cache.has(existingMapping.discordId)) {
+          // Réparer un mapping cassé ou pointant vers un salon supprimé (match par nom — le type peut différer après fallback news→text)
           const mirrorChannel = targetGuild.channels.cache.find(
-            ch => ch.name === sourceChannel.name && ch.type === sourceChannel.type
+            ch => ch.name === sourceChannel.name && ch.type !== 4 // exclure catégories
           );
 
           if (mirrorChannel) {
@@ -549,14 +551,30 @@ class ChannelSyncService {
         }
       }
 
+      const numericType = this.convertChannelType(sourceChannel.type);
+
       const channelData = {
         name: sourceChannel.name,
-        type: sourceChannel.type,
+        type: numericType,
         parent: parentCategory,
         topic: sourceChannel.topic || null,
         nsfw: sourceChannel.nsfw || false,
         rateLimitPerUser: sourceChannel.rateLimitPerUser || 0
       };
+
+      // Fallback news → text si le serveur n'a pas Community
+      if (numericType === 5) {
+        try {
+          return await targetGuild.channels.create(channelData);
+        } catch (newsError) {
+          if (newsError.code === 50035 || newsError.message?.includes('COMMUNITY')) {
+            channelData.type = 0;
+            channelData.topic = `📢 [Salon d'annonces] ${channelData.topic || ''}`;
+          } else {
+            throw newsError;
+          }
+        }
+      }
 
       const newChannel = await targetGuild.channels.create(channelData);
       console.log(`✅ Salon créé: ${newChannel.name} (type: ${newChannel.type})`);
@@ -674,6 +692,26 @@ class ChannelSyncService {
     }
 
     return stats;
+  }
+
+  /**
+   * Convertit le type de salon string (selfbot) vers numérique (discord.js v14)
+   */
+  convertChannelType(type) {
+    if (typeof type === 'number') return type;
+
+    const typeMap = {
+      'GUILD_TEXT': 0,
+      'DM': 1,
+      'GUILD_VOICE': 2,
+      'GUILD_CATEGORY': 4,
+      'GUILD_NEWS': 5,
+      'GUILD_NEWS_THREAD': 10,
+      'GUILD_PUBLIC_THREAD': 11,
+      'GUILD_FORUM': 15
+    };
+
+    return typeMap[type] || 0;
   }
 }
 
