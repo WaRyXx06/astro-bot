@@ -2622,7 +2622,7 @@ class ScraperService {
                 attachments: message.attachments ? new Map(message.attachments.map(a => [a.id, a])) : new Map(),
                 embeds: message.embeds || [],
                 createdTimestamp: new Date(message.timestamp).getTime(),
-                reference: message.message_reference || null,
+                reference: message.message_reference ? { messageId: message.message_reference.message_id, channelId: message.message_reference.channel_id, guildId: message.message_reference.guild_id } : null,
                 type: message.type,
                 channel: {
                   id: threadDetails.id,
@@ -2733,7 +2733,24 @@ class ScraperService {
         const timestampPrefix = `📅 <t:${unixSeconds}:f>`;
         let finalContent = message.content
           ? `${timestampPrefix}\n${message.content}`
-          : timestampPrefix;
+          : '';
+
+        // Fallback pour messages sans contenu texte (stickers, système, etc.)
+        // Reproduit le pattern processMessage:719-744 avec les champs API REST
+        if (!message.content) {
+          let fallback = '';
+          if (message.sticker_items?.length > 0) {
+            const names = message.sticker_items.map(s => s.name).join(', ');
+            fallback = `🎨 *${message.sticker_items.length} sticker(s): ${names}*`;
+          } else if (message.type === 20) {
+            fallback = `⚡ *Commande slash utilisée*`;
+          } else if (message.message_reference) {
+            fallback = `↩️ *Message en réponse*`;
+          }
+          finalContent = fallback
+            ? `${timestampPrefix}\n${fallback}`
+            : timestampPrefix;
+        }
 
         // Séparer attachments small (≤ 8MB, uploadables) et large (> 8MB, liens uniquement)
         const rawAttachments = message.attachments || [];
@@ -2764,7 +2781,7 @@ class ScraperService {
           attachments: new Map(smallAttachments.map(a => [a.id, a])),
           embeds: message.embeds || [],
           createdTimestamp: new Date(message.timestamp).getTime(),
-          reference: message.message_reference || null,
+          reference: message.message_reference ? { messageId: message.message_reference.message_id, channelId: message.message_reference.channel_id, guildId: message.message_reference.guild_id } : null,
           type: message.type,
           stickers: message.sticker_items ? new Map(message.sticker_items.map(s => [s.id, s])) : new Map(),
           channel: {
@@ -2853,7 +2870,7 @@ class ScraperService {
             attachments: message.attachments ? new Map(message.attachments.map(a => [a.id, a])) : new Map(),
             embeds: message.embeds || [],
             createdTimestamp: new Date(message.timestamp).getTime(),
-            reference: message.message_reference || null,
+            reference: message.message_reference ? { messageId: message.message_reference.message_id, channelId: message.message_reference.channel_id, guildId: message.message_reference.guild_id } : null,
             type: message.type,
             channel: {
               id: forumThreadData.sourceChannelId || forumThreadData.discordId,
@@ -3102,7 +3119,7 @@ class ScraperService {
                 attachments: message.attachments ? new Map(message.attachments.map(a => [a.id, a])) : new Map(),
                 embeds: message.embeds || [],
                 createdTimestamp: new Date(message.timestamp).getTime(),
-                reference: message.message_reference || null,
+                reference: message.message_reference ? { messageId: message.message_reference.message_id, channelId: message.message_reference.channel_id, guildId: message.message_reference.guild_id } : null,
                 type: message.type,
                 channel: {
                   id: threadDetails.id,
