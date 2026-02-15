@@ -31,6 +31,7 @@ class UserClientService {
     this.selfbots = new Map(); // Map<targetGuildId, selfbot>
     this.eventHandlers = new Map(); // Map<targetGuildId, {scraper, targetGuild, sourceGuild}>
     this.heartbeatIntervals = new Map(); // Map<targetGuildId, intervalId>
+    this.reconnecting = new Set(); // Set<targetGuildId> — empêche double reconnexion
 
     // Nettoyage périodique du failedChannelCache (toutes les 10 min)
     this._failedChannelCleanupInterval = setInterval(() => {
@@ -1410,7 +1411,7 @@ class UserClientService {
       // Gestion des erreurs du selfbot
       selfbot.on('error', (error) => {
         console.error(`❌ Erreur selfbot ${targetGuildId}:`, error);
-        
+
         // Gestion spécifique pour "other side closed" et erreurs de connexion
         if (error.message && (
             error.message.includes('other side closed') ||
@@ -1418,39 +1419,53 @@ class UserClientService {
             error.message.includes('ECONNRESET') ||
             error.message.includes('socket hang up')
         )) {
-          
+
+          // Empêcher double reconnexion (race condition error + disconnect)
+          if (this.reconnecting.has(targetGuildId)) return;
+          this.reconnecting.add(targetGuildId);
+
           // Programmer une reconnexion automatique après 30 secondes
           setTimeout(async () => {
             try {
-              if (this.selfbots.has(targetGuildId)) {
-                
-                // Détruire la connexion existante
-                await this.stopEventListeners(targetGuildId);
-                
-                // Attendre un peu puis reconnecter
-                await new Promise(resolve => setTimeout(resolve, 5000));
-                
-                // Récupérer les handlers pour reconnecter
-                const handlers = this.eventHandlers.get(targetGuildId);
-                if (handlers) {
-                  const { scraper, targetGuild } = handlers;
-                  const sourceGuildId = handlers.sourceGuild?.id;
+              if (!this.selfbots.has(targetGuildId)) return; // Stoppé manuellement
 
-                  // 🛡️ PROTECTION NULL-SAFE: Récupérer sourceGuild frais depuis le cache selfbot
-                  const currentSelfbot = this.selfbots.get(targetGuildId);
-                  const freshSourceGuild = sourceGuildId && currentSelfbot?.guilds?.cache?.get(sourceGuildId);
-                  const sourceGuildToUse = freshSourceGuild || handlers.sourceGuild;
+              // Sauver les handlers AVANT de détruire (stopEventListeners les supprime)
+              const handlers = this.eventHandlers.get(targetGuildId);
 
-                  if (!sourceGuildToUse || !sourceGuildToUse.id) {
-                    console.error(`❌ sourceGuild invalide lors de la reconnexion pour ${targetGuildId}`);
-                    return;
-                  }
+              // Détruire la connexion existante
+              await this.stopEventListeners(targetGuildId);
 
-                  await this.setupEventListeners(targetGuildId, sourceGuildToUse.id, scraper, targetGuild, sourceGuildToUse);
-                }
+              if (!handlers) {
+                console.error(`❌ Pas de handlers pour reconnexion ${targetGuildId}`);
+                return;
               }
+
+              // Attendre un peu puis reconnecter
+              await new Promise(resolve => setTimeout(resolve, 5000));
+
+              const { scraper, targetGuild } = handlers;
+              const sourceGuildId = handlers.sourceGuild?.id;
+
+              if (!sourceGuildId) {
+                console.error(`❌ sourceGuild invalide lors de la reconnexion pour ${targetGuildId}`);
+                return;
+              }
+
+              await this.setupEventListeners(targetGuildId, sourceGuildId, scraper, targetGuild, handlers.sourceGuild);
+
+              // Rafraîchir sourceGuild depuis le nouveau cache selfbot
+              const newSelfbot = this.selfbots.get(targetGuildId);
+              const freshGuild = newSelfbot?.guilds?.cache?.get(sourceGuildId);
+              if (freshGuild) {
+                const newHandlers = this.eventHandlers.get(targetGuildId);
+                if (newHandlers) newHandlers.sourceGuild = freshGuild;
+              }
+
+              console.log(`✅ Reconnexion automatique réussie pour ${targetGuildId}`);
             } catch (reconnectError) {
               console.error(`❌ Échec reconnexion automatique ${targetGuildId}:`, reconnectError.message);
+            } finally {
+              this.reconnecting.delete(targetGuildId);
             }
           }, 30000); // 30 secondes
         }
@@ -1485,17 +1500,24 @@ class UserClientService {
       
       // Gestion des déconnexions WebSocket
       selfbot.on('disconnect', (event) => {
-        
+
         // Programmer une reconnexion automatique si la déconnexion n'est pas intentionnelle
         if (this.selfbots.has(targetGuildId)) {
+          // Empêcher double reconnexion (si error handler a déjà pris la main)
+          if (this.reconnecting.has(targetGuildId)) return;
+          this.reconnecting.add(targetGuildId);
+
           setTimeout(async () => {
             try {
               const handlers = this.eventHandlers.get(targetGuildId);
               if (handlers && !selfbot.destroyed) {
                 await selfbot.login(this.userTokens.get(targetGuildId)?.token);
+                console.log(`✅ Re-login après déconnexion réussi pour ${targetGuildId}`);
               }
             } catch (reconnectError) {
               console.error(`❌ Échec reconnexion après déconnexion ${targetGuildId}:`, reconnectError.message);
+            } finally {
+              this.reconnecting.delete(targetGuildId);
             }
           }, 15000); // 15 secondes
         }
@@ -1531,6 +1553,9 @@ class UserClientService {
   // 🚀 Arrêter les événements WebSocket
   async stopEventListeners(targetGuildId) {
     try {
+      // Clear reconnection pending si /stop appelé manuellement
+      this.reconnecting.delete(targetGuildId);
+
       // Nettoyer le heartbeat interval
       const heartbeat = this.heartbeatIntervals.get(targetGuildId);
       if (heartbeat) {
@@ -2116,14 +2141,23 @@ class UserClientService {
     const activeEvents = Array.from(this.selfbots.entries()).map(([guildId, selfbot]) => ({
       targetGuildId: guildId,
       selfbotTag: selfbot.user?.tag || 'Non connecté',
-      status: selfbot.ws?.status || 'Inconnu',
-      ping: selfbot.ws?.ping || 0
+      status: selfbot.ws?.status ?? 'Inconnu',
+      ping: selfbot.ws?.ping ?? 0
     }));
-    
+
     return {
       activeCount: this.selfbots.size,
       events: activeEvents
     };
+  }
+
+  // 🩺 Vérifie si au moins un selfbot a un WebSocket connecté (status 0 = READY)
+  isSelfbotHealthy() {
+    if (this.selfbots.size === 0) return false;
+    for (const [, selfbot] of this.selfbots) {
+      if (!selfbot.destroyed && selfbot.ws?.status === 0) return true;
+    }
+    return false;
   }
 }
 

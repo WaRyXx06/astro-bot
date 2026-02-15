@@ -93,6 +93,15 @@ class ActivityMonitorService {
     const period = this.getCurrentPeriod();
     const threshold = this.getActivityThreshold();
 
+    // 🩺 Health check : vérifier si le selfbot WebSocket est connecté
+    // Si connecté → serveur simplement calme, pas de fausse alerte
+    const isHealthy = this.client.services?.userClient?.isSelfbotHealthy?.();
+    if (isHealthy) {
+      // Selfbot connecté, juste pas de messages → serveur calme, pas d'alerte
+      this.resetActivityTimer();
+      return;
+    }
+
     // Si on est en mode nuit et que c'est désactivé, ne pas alerter
     if (period === 'Nuit' && this.NIGHT_MODE_ENABLED) {
     }
