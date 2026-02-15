@@ -2696,6 +2696,70 @@ class ScraperService {
     }
   }
 
+  // 📥 Backfill les N derniers messages d'un salon source vers le mirror
+  // Utilise userClient.fetchChannelMessages() pour les headers anti-détection
+  // Délais ultra-safe entre chaque message (3-4.5s avec jitter)
+  async backfillChannel(sourceChannelId, targetChannel, sourceGuild, userClient, targetGuildId, count = 10) {
+    const userData = userClient.getUserData(targetGuildId);
+    if (!userData?.token) {
+      throw new Error('Token utilisateur non disponible');
+    }
+
+    // Délai anti-détection avant le fetch initial
+    await userClient.smartDelay(2000);
+
+    // Fetch via userClient (headers anti-détection + retry)
+    const messages = await userClient.fetchChannelMessages(userData.token, sourceChannelId, count);
+
+    if (!messages || messages.length === 0) {
+      return { fetched: 0, processed: 0, skipped: 0 };
+    }
+
+    let processed = 0;
+    let skipped = 0;
+
+    // Traiter dans l'ordre chronologique (API retourne du plus récent au plus ancien)
+    for (const message of messages.reverse()) {
+      try {
+        // Dedup : skip si déjà mirroré
+        const alreadyProcessed = await ProcessedMessage.findOne({ discordId: message.id });
+        if (alreadyProcessed) {
+          skipped++;
+          continue;
+        }
+
+        // Format API brut → objet compatible processMessage (pattern scraper.js:2618-2631)
+        const messageToProcess = {
+          id: message.id,
+          content: message.content,
+          author: message.author,
+          attachments: message.attachments ? new Map(message.attachments.map(a => [a.id, a])) : new Map(),
+          embeds: message.embeds || [],
+          createdTimestamp: new Date(message.timestamp).getTime(),
+          reference: message.message_reference || null,
+          type: message.type,
+          stickers: message.sticker_items ? new Map(message.sticker_items.map(s => [s.id, s])) : new Map(),
+          channel: {
+            id: sourceChannelId,
+            name: targetChannel.name
+          }
+        };
+
+        await this.processMessage(messageToProcess, targetChannel, sourceGuild);
+        processed++;
+
+        // Délai ultra-safe entre chaque message (3-4.5s avec jitter)
+        await userClient.smartDelay(3000);
+
+      } catch (msgError) {
+        console.error(`❌ Erreur backfill message ${message.id}:`, msgError.message);
+        // Continuer avec les autres messages
+      }
+    }
+
+    return { fetched: messages.length, processed, skipped };
+  }
+
   // 🏛️ Scraper un thread de forum spécifique
   async scrapeForumThread(targetGuild, sourceGuild, forumThreadData, parentForum) {
     try {

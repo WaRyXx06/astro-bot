@@ -1058,6 +1058,9 @@ client.on('interactionCreate', async (interaction) => {
         case 'scan-members':
           await handleScanMembers(interaction);
           break;
+        case 'backfill':
+          await handleBackfill(interaction);
+          break;
         case 'member-count':
           await handleMemberCount(interaction);
           break;
@@ -7885,6 +7888,82 @@ async function handleAutoRepair(interaction) {
       'handleAutoRepair',
       { error }
     );
+  }
+}
+
+// 📥 COMMANDE - BACKFILL DES DERNIERS MESSAGES D'UN SALON
+async function handleBackfill(interaction) {
+  const permissionCheck = checkAdminPermission(interaction);
+  if (!permissionCheck.hasPermission) {
+    await interaction.reply(permissionCheck.error);
+    return;
+  }
+
+  await interaction.deferReply();
+
+  try {
+    // Vérifier config
+    const sourceGuild = client.services.userClient.getSourceGuild(interaction.guild.id);
+    if (!sourceGuild) {
+      await interaction.editReply('❌ Configuration serveur source manquante. Utilisez `/start` d\'abord.');
+      return;
+    }
+
+    const rawChannelName = interaction.options.getString('channel_name');
+    const channelName = rawChannelName.replace(/^#/, ''); // Strip # prefix si présent
+    const count = Math.min(interaction.options.getInteger('count') || 10, 10);
+
+    // Trouver le channel source par nom
+    const Channel = require('./models/Channel');
+    const channelDoc = await Channel.findOne({
+      serverId: sourceGuild.id,
+      name: { $regex: new RegExp(`^${channelName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+      manuallyDeleted: { $ne: true }
+    });
+
+    if (!channelDoc) {
+      await interaction.editReply(`❌ Salon **#${channelName}** introuvable dans la base de données.\n\nVérifiez le nom exact ou lancez \`/discovery\` d'abord.`);
+      return;
+    }
+
+    if (!channelDoc.sourceChannelId) {
+      await interaction.editReply(`❌ Salon **#${channelName}** n'a pas de correspondance source configurée. Lancez \`/fix-correspondances\` d'abord.`);
+      return;
+    }
+
+    // Trouver le channel mirror correspondant
+    const targetChannel = interaction.guild.channels.cache.get(channelDoc.discordId);
+    if (!targetChannel) {
+      await interaction.editReply(`❌ Salon mirror **#${channelName}** introuvable sur ce serveur.`);
+      return;
+    }
+
+    await interaction.editReply(`📥 **Backfill en cours** pour **#${channelName}**...\n⏳ Récupération des ${count} derniers messages (délais de sécurité actifs)`);
+
+    // Lancer le backfill via le scraper
+    const result = await client.services.scraper.backfillChannel(
+      channelDoc.sourceChannelId,
+      targetChannel,
+      sourceGuild,
+      client.services.userClient,
+      interaction.guild.id,
+      count
+    );
+
+    await interaction.editReply(
+      `📥 **Backfill terminé** pour **#${channelName}**\n\n` +
+      `📊 Messages récupérés: **${result.fetched}**\n` +
+      `✅ Traités: **${result.processed}**\n` +
+      `⏭️ Déjà présents: **${result.skipped}**`
+    );
+
+  } catch (error) {
+    console.error('❌ Erreur backfill:', error.message);
+    if (interaction.replied || interaction.deferred) {
+      await interaction.editReply(`❌ Erreur backfill: ${error.message}`);
+    } else {
+      await interaction.reply(`❌ Erreur backfill: ${error.message}`);
+    }
   }
 }
 

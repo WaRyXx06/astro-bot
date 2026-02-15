@@ -317,6 +317,29 @@ const GUILD_COMMANDS = [
         required: false
       }
     ]
+  },
+
+  // === BACKFILL MESSAGES ===
+  {
+    name: 'backfill',
+    description: '📥 Récupérer les derniers messages d\'un salon source',
+    defaultMemberPermissions: PermissionFlagsBits.Administrator,
+    options: [
+      {
+        name: 'channel_name',
+        type: 3, // STRING
+        description: 'Nom du salon source à backfill',
+        required: true
+      },
+      {
+        name: 'count',
+        type: 4, // INTEGER
+        description: 'Nombre de messages à récupérer (défaut: 10, max: 10)',
+        required: false,
+        minValue: 1,
+        maxValue: 10
+      }
+    ]
   }
 ];
 
