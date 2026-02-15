@@ -2728,12 +2728,40 @@ class ScraperService {
           continue;
         }
 
+        // Préfixer le contenu avec le timestamp original (Discord format natif)
+        const unixSeconds = Math.floor(new Date(message.timestamp).getTime() / 1000);
+        const timestampPrefix = `📅 <t:${unixSeconds}:f>`;
+        let finalContent = message.content
+          ? `${timestampPrefix}\n${message.content}`
+          : timestampPrefix;
+
+        // Séparer attachments small (≤ 8MB, uploadables) et large (> 8MB, liens uniquement)
+        const rawAttachments = message.attachments || [];
+        const smallAttachments = [];
+        const largeAttachmentLinks = [];
+
+        for (const att of rawAttachments) {
+          const name = att.filename || att.name || 'fichier-inconnu';
+          const normalized = { ...att, name }; // mapper filename → name pour processAttachments
+          if (att.size && att.size > 8 * 1024 * 1024) {
+            const sizeMB = (att.size / (1024 * 1024)).toFixed(1);
+            largeAttachmentLinks.push(`📎 **[${name}](${att.url})** (${sizeMB} MB)`);
+          } else {
+            smallAttachments.push(normalized);
+          }
+        }
+
+        // Ajouter les liens des gros fichiers au contenu
+        if (largeAttachmentLinks.length > 0) {
+          finalContent += '\n' + largeAttachmentLinks.join('\n');
+        }
+
         // Format API brut → objet compatible processMessage (pattern scraper.js:2618-2631)
         const messageToProcess = {
           id: message.id,
-          content: message.content,
+          content: finalContent,
           author: message.author,
-          attachments: message.attachments ? new Map(message.attachments.map(a => [a.id, a])) : new Map(),
+          attachments: new Map(smallAttachments.map(a => [a.id, a])),
           embeds: message.embeds || [],
           createdTimestamp: new Date(message.timestamp).getTime(),
           reference: message.message_reference || null,

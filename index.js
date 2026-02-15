@@ -7956,28 +7956,34 @@ async function handleBackfill(interaction) {
     const channelName = rawChannelName.replace(/^#/, ''); // Strip # prefix si présent
     const count = Math.min(interaction.options.getInteger('count') || 10, 10);
 
-    // Trouver le channel source par nom
+    // Trouver le channel source par nom (find pluriel pour gérer les doublons/entrées corrompues)
     const Channel = require('./models/Channel');
-    const channelDoc = await Channel.findOne({
+    const channelDocs = await Channel.find({
       serverId: sourceGuild.id,
       name: { $regex: new RegExp(`^${channelName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
       manuallyDeleted: { $ne: true }
     });
 
-    if (!channelDoc) {
+    if (channelDocs.length === 0) {
       await interaction.editReply(`❌ Salon **#${channelName}** introuvable dans la base de données.\n\nVérifiez le nom exact ou lancez \`/discovery\` d'abord.`);
       return;
     }
 
-    if (!channelDoc.sourceChannelId) {
-      await interaction.editReply(`❌ Salon **#${channelName}** n'a pas de correspondance source configurée. Lancez \`/fix-correspondances\` d'abord.`);
-      return;
+    // Trouver la première entrée valide (discordId existe sur le mirror ET sourceChannelId présent)
+    let channelDoc = null;
+    let targetChannel = null;
+    for (const doc of channelDocs) {
+      if (!doc.sourceChannelId) continue;
+      const ch = interaction.guild.channels.cache.get(doc.discordId);
+      if (ch) {
+        channelDoc = doc;
+        targetChannel = ch;
+        break;
+      }
     }
 
-    // Trouver le channel mirror correspondant
-    const targetChannel = interaction.guild.channels.cache.get(channelDoc.discordId);
-    if (!targetChannel) {
-      await interaction.editReply(`❌ Salon mirror **#${channelName}** introuvable sur ce serveur.`);
+    if (!channelDoc || !targetChannel) {
+      await interaction.editReply(`❌ Salon mirror **#${channelName}** introuvable sur ce serveur.\n\n💡 Lancez \`/fix-correspondances\` ou \`/discovery\` pour réparer.`);
       return;
     }
 
