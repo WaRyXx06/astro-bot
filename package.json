@@ -1,0 +1,60 @@
+{
+  "name": "discord-mirror-bot-hybrid",
+  "version": "2.0.0",
+  "description": "Bot Discord officiel avec architecture hybride pour mirroring automatisé via token utilisateur",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "cross-env NODE_ENV=development nodemon index.js",
+    "prod": "cross-env NODE_ENV=production node index.js",
+    "pm2:start": "pm2 start ecosystem.config.js",
+    "pm2:stop": "pm2 stop presecop-mirror",
+    "pm2:restart": "pm2 restart presecop-mirror",
+    "pm2:logs": "pm2 logs presecop-mirror",
+    "pm2:monit": "pm2 monit",
+    "logs:clean": "rimraf logs/*.log",
+    "test": "echo \"Production ready\" && exit 0",
+    "postinstall": "echo 'Dependencies installed successfully'"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "mirror",
+    "scraping",
+    "hybrid",
+    "slash-commands",
+    "mongodb",
+    "automation"
+  ],
+  "author": "Discord Mirror Bot",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.7.0",
+    "discord.js": "^14.16.3",
+    "discord.js-selfbot-v13": "^3.6.1",
+    "dotenv": "^16.4.5",
+    "mongodb": "^6.17.0",
+    "mongoose": "^8.8.4",
+    "node-cron": "^3.0.3",
+    "node-fetch": "^3.3.2",
+    "puppeteer-core": "^22.0.0"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "^0.65.0",
+    "cross-env": "^7.0.3",
+    "nodemon": "^3.1.9",
+    "rimraf": "^6.0.1"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/discord-mirror-bot-hybrid.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-username/discord-mirror-bot-hybrid/issues"
+  },
+  "homepage": "https://github.com/your-username/discord-mirror-bot-hybrid#readme"
+}
