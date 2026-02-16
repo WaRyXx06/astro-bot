@@ -814,8 +814,8 @@ class ChannelMonitorService {
       const now = new Date();
       const next330AM = this.getNext330AM();
       
-      // D'abord, essayer de récupérer le document existant
-      const existingChannel = await Channel.findOne({ discordId: sourceChannel.id });
+      // D'abord, essayer de récupérer le document existant par sourceChannelId
+      const existingChannel = await Channel.findOne({ sourceChannelId: sourceChannel.id, serverId: sourceGuildId });
       
       let updatedChannel;
       let isFirstTimeBlacklist = false;
@@ -843,37 +843,45 @@ class ChannelMonitorService {
         isFirstTimeBlacklist = true;
         
         try {
-          updatedChannel = await Channel.create({
-            discordId: sourceChannel.id,
-            serverId: sourceGuildId,
-            sourceChannelId: sourceChannel.id,
-            name: sourceChannel.name,
-            category: null,
-            isBlacklisted: true,
-            blacklistedUntil: next330AM,
-            lastFailedAt: now,
-            scraped: false,
-            failedAttempts: 1
-          });
+          // Utiliser findOneAndUpdate avec upsert — $setOnInsert protège discordId existant
+          updatedChannel = await Channel.findOneAndUpdate(
+            { sourceChannelId: sourceChannel.id, serverId: sourceGuildId },
+            {
+              $set: {
+                name: sourceChannel.name,
+                isBlacklisted: true,
+                blacklistedUntil: next330AM,
+                lastFailedAt: now,
+                scraped: false
+              },
+              $setOnInsert: {
+                discordId: sourceChannel.id,
+                serverId: sourceGuildId,
+                sourceChannelId: sourceChannel.id,
+                category: null
+              },
+              $inc: { failedAttempts: 1 }
+            },
+            { upsert: true, new: true }
+          );
         } catch (createError) {
-          // Si erreur E11000, c'est une condition de concurrence - réessayer avec update
+          // Si erreur E11000 (conflit discordId), réessayer sans changer discordId
           if (createError.code === 11000) {
-            
             updatedChannel = await Channel.findOneAndUpdate(
-              { discordId: sourceChannel.id },
+              { sourceChannelId: sourceChannel.id, serverId: sourceGuildId },
               {
                 $set: {
                   isBlacklisted: true,
                   blacklistedUntil: next330AM,
                   lastFailedAt: now,
                   scraped: false,
-                  name: sourceChannel.name // Mettre à jour le nom au cas où
+                  name: sourceChannel.name
                 },
                 $inc: { failedAttempts: 1 }
               },
               { new: true }
             );
-            
+
             // Dans ce cas, on ne sait pas si c'était le premier blacklist
             isFirstTimeBlacklist = false;
           } else {

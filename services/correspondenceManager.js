@@ -852,8 +852,16 @@ class CorrespondenceManager {
         // (couvre 'pending', 'pending_xxx', et les IDs de salons supprimés)
         if (newMapping && newMapping.discordId) {
           const verifyGuild = this.client.guilds.cache.get(targetGuildId);
-          if (verifyGuild && verifyGuild.channels.cache.has(newMapping.discordId)) {
-            return newMapping.discordId;
+          if (verifyGuild) {
+            if (verifyGuild.channels.cache.has(newMapping.discordId)) {
+              return newMapping.discordId;
+            }
+            // 🧵 Threads archivés ne sont pas dans guild.channels.cache
+            for (const [, channel] of verifyGuild.channels.cache) {
+              if (channel.threads?.cache?.has(newMapping.discordId)) {
+                return newMapping.discordId;
+              }
+            }
           }
         }
       }

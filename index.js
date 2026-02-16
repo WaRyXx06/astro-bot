@@ -9889,8 +9889,8 @@ async function autoBlacklistInaccessibleChannel(sourceChannel, sourceGuildId, ta
   try {
     const Channel = require('./models/Channel');
     
-    // D'abord, essayer de récupérer le document existant par discordId
-    let channelDB = await Channel.findOne({ discordId: sourceChannel.id });
+    // D'abord, essayer de récupérer le document existant par sourceChannelId
+    let channelDB = await Channel.findOne({ sourceChannelId: sourceChannel.id, serverId: sourceGuildId });
     
     let isFirstTimeBlacklist = false;
     
@@ -9931,22 +9931,25 @@ async function autoBlacklistInaccessibleChannel(sourceChannel, sourceGuildId, ta
       isFirstTimeBlacklist = true;
       
       try {
-        // Utiliser findOneAndUpdate avec upsert pour éviter les doublons
+        // Utiliser findOneAndUpdate avec upsert — $setOnInsert protège discordId existant
         channelDB = await Channel.findOneAndUpdate(
           { sourceChannelId: sourceChannel.id, serverId: sourceGuildId },
           {
-            discordId: sourceChannel.id,
-            serverId: sourceGuildId,
-            sourceChannelId: sourceChannel.id,
-            name: sourceChannel.name,
-            category: null, // On ne peut pas récupérer la catégorie si inaccessible
-            scraped: false,
-            failedAttempts: 1,
-            isBlacklisted: true,
-            blacklistedUntil: getNext330AM(),
-            lastFailedAt: new Date(),
-            // Retiré: lastActivity - ne pas mettre à jour lors des erreurs
-            isActive: true
+            $set: {
+              name: sourceChannel.name,
+              scraped: false,
+              isBlacklisted: true,
+              blacklistedUntil: getNext330AM(),
+              lastFailedAt: new Date(),
+              isActive: true
+            },
+            $setOnInsert: {
+              discordId: sourceChannel.id,
+              serverId: sourceGuildId,
+              sourceChannelId: sourceChannel.id,
+              category: null
+            },
+            $inc: { failedAttempts: 1 }
           },
           { upsert: true, new: true }
         );
@@ -9955,7 +9958,7 @@ async function autoBlacklistInaccessibleChannel(sourceChannel, sourceGuildId, ta
         if (createError.code === 11000) {
           
           channelDB = await Channel.findOneAndUpdate(
-            { discordId: sourceChannel.id },
+            { sourceChannelId: sourceChannel.id, serverId: sourceGuildId },
             {
               $set: {
                 isBlacklisted: true,
