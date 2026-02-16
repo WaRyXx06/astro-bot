@@ -228,8 +228,8 @@ class CorrespondenceManager {
         channelMapping = await this.autoCreateChannelMapping(sourceChannelId, sourceGuildId, targetGuildId);
       }
 
-      // 🛡️ FIX: Filtrer les mappings avec discordId='pending' (salon en cours de création qui a échoué)
-      if (channelMapping && channelMapping.discordId && channelMapping.discordId !== 'pending') {
+      // 🛡️ FIX: Filtrer les mappings pending (salon en cours de création qui a échoué)
+      if (channelMapping && channelMapping.discordId && channelMapping.discordId !== 'pending' && !channelMapping.discordId.startsWith('pending_')) {
         // Vérifier que le salon mirror existe toujours en utilisant l'ID stocké
         const targetGuild = this.client.guilds.cache.get(targetGuildId);
         if (targetGuild) {
@@ -848,9 +848,13 @@ class CorrespondenceManager {
           serverId: sourceGuildId
         });
 
-        // 🛡️ FIX: Filtrer 'pending' - un mapping avec discordId='pending' signifie création échouée
-        if (newMapping && newMapping.discordId && newMapping.discordId !== 'pending') {
-          return newMapping.discordId;
+        // 🛡️ FIX: Vérifier que le discordId pointe vers un vrai salon sur le mirror
+        // (couvre 'pending', 'pending_xxx', et les IDs de salons supprimés)
+        if (newMapping && newMapping.discordId) {
+          const verifyGuild = this.client.guilds.cache.get(targetGuildId);
+          if (verifyGuild && verifyGuild.channels.cache.has(newMapping.discordId)) {
+            return newMapping.discordId;
+          }
         }
       }
 

@@ -280,7 +280,7 @@ class ChannelSyncService {
         if (!existingMapping) {
           // Créer un nouveau mapping (match par nom uniquement — le type peut différer après fallback news→text)
           const mirrorChannel = targetGuild.channels.cache.find(
-            ch => ch.name === sourceChannel.name && ch.type !== 4 // exclure catégories
+            ch => ch.name === sourceChannel.name && [0, 5, 15].includes(ch.type) // text, news, forum uniquement
           );
 
           if (mirrorChannel) {
@@ -385,10 +385,10 @@ class ChannelSyncService {
               }
             }
           }
-        } else if (!existingMapping.discordId || existingMapping.discordId === 'pending' || !targetGuild.channels.cache.has(existingMapping.discordId)) {
+        } else if (!existingMapping.discordId || existingMapping.discordId === 'pending' || existingMapping.discordId.startsWith('pending_') || !targetGuild.channels.cache.has(existingMapping.discordId)) {
           // Réparer un mapping cassé ou pointant vers un salon supprimé (match par nom — le type peut différer après fallback news→text)
           const mirrorChannel = targetGuild.channels.cache.find(
-            ch => ch.name === sourceChannel.name && ch.type !== 4 // exclure catégories
+            ch => ch.name === sourceChannel.name && [0, 5, 15].includes(ch.type) // text, news, forum uniquement
           );
 
           if (mirrorChannel) {

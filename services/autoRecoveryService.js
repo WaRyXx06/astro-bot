@@ -126,12 +126,16 @@ class AutoRecoveryService {
 
         this.logger.info('recovery', `🔍 [Attempt 1] Mapping trouvé: ${mapping ? `${mapping.name} (${mapping.discordId})` : 'NON'}`);
 
-        if (mapping && mapping.discordId && mapping.discordId !== 'pending') {
-          await this.handleRecoverySuccess(sourceChannelId, sourceGuildId, targetGuildId, mapping);
-          return;
+        // Vérifier que le discordId pointe vers un vrai salon sur le mirror (pas pending, pas stale)
+        if (mapping && mapping.discordId) {
+          const verifyGuild = this.client.guilds.cache.get(targetGuildId);
+          if (verifyGuild && verifyGuild.channels.cache.has(mapping.discordId)) {
+            await this.handleRecoverySuccess(sourceChannelId, sourceGuildId, targetGuildId, mapping);
+            return;
+          }
         }
 
-        this.logger.info('recovery', `⏭️ [Attempt 1] Mapping non trouvé, passage à l'attempt 2...`);
+        this.logger.info('recovery', `⏭️ [Attempt 1] Mapping non trouvé ou invalide, passage à l'attempt 2...`);
       }
 
       // Tentative 2: Créer le salon manuellement
@@ -264,9 +268,13 @@ class AutoRecoveryService {
           serverId: sourceGuildId
         });
 
-        if (mapping && mapping.discordId && mapping.discordId !== 'pending') {
-          await this.handleRecoverySuccess(sourceChannelId, sourceGuildId, targetGuildId, mapping);
-          return;
+        // Vérifier que le discordId pointe vers un vrai salon sur le mirror
+        if (mapping && mapping.discordId) {
+          const verifyGuild = this.client.guilds.cache.get(targetGuildId);
+          if (verifyGuild && verifyGuild.channels.cache.has(mapping.discordId)) {
+            await this.handleRecoverySuccess(sourceChannelId, sourceGuildId, targetGuildId, mapping);
+            return;
+          }
         }
       }
 

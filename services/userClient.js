@@ -1629,7 +1629,7 @@ class UserClientService {
         serverId: sourceGuild.id
       });
 
-      if (existingChannel && existingChannel.discordId && existingChannel.discordId !== 'pending') {
+      if (existingChannel && existingChannel.discordId && existingChannel.discordId !== 'pending' && !existingChannel.discordId.startsWith('pending_')) {
         // Vérifier que le discordId pointe vers un vrai salon sur le mirror
         const existsOnMirror = targetGuild.channels.cache.has(existingChannel.discordId);
         if (existsOnMirror) return;
@@ -1846,13 +1846,13 @@ class UserClientService {
       } catch (createError) {
         console.error(`❌ Erreur création salon mirror: ${createError.message}`);
 
-        // Sauvegarder le mapping avec sourceChannelId comme discordId temporaire
-        // (évite le problème unique constraint avec 'pending' constant)
+        // Sauvegarder le mapping avec discordId temporaire unique
+        // Format pending_<sourceId> : évite E11000 (unique constraint) et ne passe pas les checks cache.has()
         await Channel.findOneAndUpdate(
           { sourceChannelId: sourceChannel.id, serverId: sourceGuild.id },
           {
             name: sourceChannel.name,
-            discordId: sourceChannel.id,
+            discordId: `pending_${sourceChannel.id}`,
             lastActivity: new Date(),
             isActive: true
           },

@@ -7972,7 +7972,7 @@ async function handleBackfill(interaction) {
     let targetChannel = null;
     for (const doc of channelDocs) {
       if (!doc.sourceChannelId) continue;
-      if (!doc.discordId || doc.discordId === 'pending') continue;
+      if (!doc.discordId || doc.discordId === 'pending' || doc.discordId.startsWith('pending_')) continue;
       const ch = interaction.guild.channels.cache.get(doc.discordId);
       if (ch) {
         channelDoc = doc;
@@ -7984,7 +7984,7 @@ async function handleBackfill(interaction) {
     // Fallback : chercher le salon mirror par nom dans le guild cache
     if (!channelDoc || !targetChannel) {
       const mirrorByName = interaction.guild.channels.cache.find(
-        ch => ch.name === channelName && ch.type !== 4 // exclure catégories
+        ch => ch.name === channelName && [0, 5, 15].includes(ch.type) // text, news, forum uniquement
       );
       if (mirrorByName) {
         // Trouver un doc avec sourceChannelId pour le backfill
